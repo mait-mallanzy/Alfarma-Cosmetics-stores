@@ -1,0 +1,5 @@
+import bcrypt from 'bcryptjs'; import {pool} from './db.js';
+const stores=[['Cantoment Store',true,true],['International Market — Besides Former Unity Bank Store',true,true],['International Market — Shop No. 2, Block B, Near Main Gate',true,true],['200 Unit Osuku Plaza — Alfarma Essential Cosmetics Store',true,true],['Felele Branch',true,true],['Coming Soon',false,false]];
+for(const [name,active,pickup] of stores) await pool.query('INSERT INTO stores(name,active,pickup_enabled) VALUES($1,$2,$3) ON CONFLICT(name) DO UPDATE SET active=EXCLUDED.active,pickup_enabled=EXCLUDED.pickup_enabled',[name,active,pickup]);
+for(const [u,p] of [['admin1','ChangeMe123!'],['admin2','ChangeMe456!']]){const h=await bcrypt.hash(p,12);await pool.query("INSERT INTO users(username,password_hash,role) VALUES($1,$2,'ADMIN') ON CONFLICT(username) DO NOTHING",[u,h]);}
+await pool.end(); console.log('Seed complete.');

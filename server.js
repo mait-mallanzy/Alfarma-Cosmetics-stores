@@ -1,0 +1,15 @@
+import express from 'express'; import bcrypt from 'bcryptjs'; import path from 'node:path'; import {fileURLToPath} from 'node:url'; import {pool} from './db.js';
+const app=express(), dir=path.dirname(fileURLToPath(import.meta.url)); app.use(express.json()); app.use(express.static(path.join(dir,'../../web')));
+app.get('/api/health',(_,r)=>r.json({ok:true}));
+app.get('/api/stores',async(_,r)=>r.json((await pool.query('SELECT id,name,active,pickup_enabled FROM stores ORDER BY created_at')).rows));
+app.post('/api/login',async(q,r)=>{const {username,password}=q.body||{};const x=(await pool.query('SELECT id,username,password_hash,role,store_id FROM users WHERE username=$1 AND active=true',[username])).rows[0];if(!x||!(await bcrypt.compare(password||'',x.password_hash)))return r.status(401).json({error:'Invalid credentials'});r.json({id:x.id,username:x.username,role:x.role,store_id:x.store_id});});
+app.get('/api/products',async(q,r)=>r.json((await pool.query('SELECT p.*,COALESCE(i.quantity,0) quantity,COALESCE(i.reserved_quantity,0) reserved_quantity FROM products p LEFT JOIN inventory i ON i.product_id=p.id AND i.store_id=$1 WHERE p.active=true ORDER BY p.name',[q.query.store_id||null])).rows));
+app.post('/api/vip/register',async(q,r)=>{const b=q.body||{};if(!b.username||!b.password||!b.full_name||!b.phone)return r.status(400).json({error:'Required fields missing'});const h=await bcrypt.hash(b.password,12);try{const x=(await pool.query('INSERT INTO vip_customers(username,password_hash,full_name,business_name,phone,email,address) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,username,status',[b.username,h,b.full_name,b.business_name||null,b.phone,b.email||null,b.address||null])).rows[0];r.status(201).json(x)}catch(e){r.status(400).json({error:'Username may already exist'})}});
+app.get('/api/admin/vip',async(_,r)=>r.json((await pool.query('SELECT id,username,full_name,business_name,phone,email,status,created_at FROM vip_customers ORDER BY created_at DESC')).rows));
+app.patch('/api/admin/vip/:id/status',async(q,r)=>{const {status}=q.body||{};if(!['PENDING','APPROVED','REJECTED','SUSPENDED'].includes(status))return r.status(400).json({error:'Invalid status'});r.json((await pool.query('UPDATE vip_customers SET status=$1 WHERE id=$2 RETURNING id,status',[status,q.params.id])).rows[0]||{})});
+app.get('/api/payment-methods/:id',async(q,r)=>r.json((await pool.query('SELECT * FROM payment_methods WHERE store_id=$1 AND active=true',[q.params.id])).rows));
+app.get('/api/orders/store/:id',async(q,r)=>r.json((await pool.query('SELECT * FROM orders WHERE store_id=$1 ORDER BY created_at DESC',[q.params.id])).rows));
+app.patch('/api/orders/:id/status',async(q,r)=>{const {status}=q.body||{};r.json((await pool.query('UPDATE orders SET order_status=$1 WHERE id=$2 RETURNING *',[status,q.params.id])).rows[0]||{})});
+app.get('/api/audit',async(_,r)=>r.json((await pool.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 200')).rows));
+app.get('*',(_,r)=>r.sendFile(path.join(dir,'../../web/index.html')));
+app.listen(process.env.PORT||3000,()=>console.log('Alfarma server running'));
